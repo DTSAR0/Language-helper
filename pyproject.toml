@@ -1,0 +1,29 @@
+[project]
+name = "lang-assistant"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "dmytro",email = "dimatsaryuk30@gmail.com"}
+]
+readme = "README.md"
+requires-python = "3.13.5"
+dependencies = [
+    "openai (>=1.90.0,<2.0.0)",
+    "streamlit (>=1.46.0,<2.0.0)",
+    "sqlmodel (>=0.0.24,<0.0.25)",
+    "sqlite-utils (>=3.38,<4.0)",
+    "python-dotenv (>=1.1.0,<2.0.0)",
+    "backoff (>=2.2.1,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+ruff = "^0.12.0"
+black = "^25.1.0"
+pre-commit = "^4.2.0"
+
