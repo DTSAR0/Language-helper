@@ -1,0 +1,78 @@
+# app/core/rag.py
+from __future__ import annotations
+from pathlib import Path
+from functools import lru_cache
+import os, numpy as np, pandas as pd, faiss
+from sentence_transformers import SentenceTransformer
+from app.core.llm import call_llm
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # прибирає попередження
+
+PATH_PAR = Path("docs/entries.parquet")
+PATH_IDX = Path("docs/index.faiss")
+
+@lru_cache(maxsize=1)
+def _load_df() -> pd.DataFrame:
+    if not PATH_PAR.exists():
+        raise FileNotFoundError(f"Missing {PATH_PAR}")
+    return pd.read_parquet(PATH_PAR)
+
+@lru_cache(maxsize=1)
+def _load_index() -> faiss.Index:
+    if not PATH_IDX.exists():
+        raise FileNotFoundError(f"Missing {PATH_IDX}")
+    return faiss.read_index(str(PATH_IDX))
+
+@lru_cache(maxsize=1)
+def _load_embedder() -> SentenceTransformer:
+    # Форсимо CPU, щоб не дратувати MPS/Metal на 8 ГБ
+    return SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cpu")
+
+def retrieve(query: str, k: int = 4):
+    """Top-k: спершу exact match (term==query), потім FAISS."""
+    df = _load_df()
+    index = _load_index()
+    emb = _load_embedder()
+
+    # 1) точний збіг
+    exact_idx = df.index[df["term"].str.casefold() == query.strip().casefold()].tolist()
+
+    # 2) семантичний пошук
+    qv = emb.encode([query], normalize_embeddings=True).astype("float32")
+    D, I = index.search(qv, max(k, 4))
+    faiss_idx = [i for i in I[0].tolist() if i not in exact_idx]
+
+    # 3) змішуємо: exact спочатку
+    idxs = (exact_idx + faiss_idx)[:k]
+    hits = df.iloc[idxs].copy()
+    # "високі" бали для exact
+    scores = [1.0]*len(exact_idx) + D[0].tolist()
+    hits["__score"] = scores[:len(hits)]
+    return hits, hits["__score"].tolist()
+
+def _clip(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n].rsplit("\n",1)[0] + "…"
+
+def build_prompt_def(term: str, context: str) -> str:
+    # Промпт для "довідки", без перекладу
+    return f"""
+You are a lexicographer. Use ONLY the CONTEXT (dictionary snippets) to answer about the exact word "{term}".
+If multiple senses exist, pick the main/common sense. Do NOT translate; do not switch to synonyms.
+
+Return concise markdown with:
+- **Definition** (1–2 sentences)
+- **Part of speech** (if obvious)
+- **2 common collocations**
+- **2 short example sentences** (you may reuse from context or write minimal natural ones)
+
+CONTEXT:
+{context}
+""".strip()
+
+def ask_with_rag_def(term: str, k: int = 4, model: str = "qwen2.5:3b-instruct",
+                     max_context_chars: int = 1200, llm_options: dict | None = None):
+    hits, _ = retrieve(term, k=k)
+    parts = [f"TERM: {row['term']}\nTEXT:\n{row['text']}" for _, row in hits.iterrows()]
+    ctx = _clip("\n\n---\n\n".join(parts), max_context_chars)
+    prompt = build_prompt_def(term, ctx)
+    return call_llm(prompt, model=model, options=llm_options)
