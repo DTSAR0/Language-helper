@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import os
-os.environ["TOKENIZERS_PARALLELISM"] = "false"  # прибирає попередження
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # removes the warning
 
 import argparse, json, re, subprocess
 from typing import Dict, Any
@@ -13,9 +13,9 @@ def _contains_whole_word(s: str, w: str) -> bool:
 from app.core.llm import call_llm
 from app.core.rag import ask_with_rag_def
 
-DEFAULT_MODEL = "qwen2.5:3b-instruct"  # легша і стабільніша для 8 ГБ
+DEFAULT_MODEL = "qwen2.5:3b-instruct"  # lighter and more stable for 8 GB
 
-# --- строгий spell-check + 3 приклади (JSON-відповідь) ---
+# --- strict spell-check + 3 examples (JSON response) ---
 SPELL_SYSTEM = (
     "You are a precise spell checker and example-sentence generator.\n"
     "Given ONE input word and its language, decide if it is correctly spelled.\n"
@@ -28,7 +28,7 @@ SPELL_SYSTEM = (
 SPELL_USER_TMPL = "language: {lang}\nword: {word}\nRespond with JSON only."
 
 def _extract_json(s: str) -> Dict[str, Any]:
-    """Дістає перший JSON-блок і валідує схему."""
+    """Extracts the first JSON block and validates the schema."""
     m = re.search(r"\{.*\}", s, flags=re.S)
     data = json.loads(m.group(0) if m else s)
     assert isinstance(data.get("is_correct"), bool)
@@ -40,7 +40,7 @@ def _extract_json(s: str) -> Dict[str, Any]:
 
 def check_spelling_and_examples(word: str, lang: str, model: str = DEFAULT_MODEL) -> Dict[str, Any]:
     prompt = SPELL_USER_TMPL.format(lang=lang, word=word.strip())
-    # ощадні опції для Air M2 8 ГБ (без Metal)
+    # economical options for Air M2 8 GB (without Metal)
     opts = {"num_ctx": 256, "num_predict": 180, "temperature": 0.2, "num_thread": 4, "num_gpu": 0}
     raw = call_llm(prompt, model=model, system=SPELL_SYSTEM, options=opts)
     return _extract_json(raw)
@@ -58,19 +58,19 @@ def main():
     print(f"Checking: {args.word}  | language: {args.lang}  | model: {args.model}  | RAG: {args.rag}")
 
     try:
-        # 1) Перевірка орфографії + 3 приклади (завжди)
+        # 1) Spelling check + 3 examples (always)
         data = check_spelling_and_examples(args.word, lang=args.lang, model=args.model)
         if data["is_correct"]:
-            print(f"✅ Слово не потребує модифікації: «{data['input']}»")
+            print(f"✅ Word does not need modification: «{data['input']}»")
         else:
-            print(f"✍️ Виправлено: «{data['input']}» → «{data['final']}»")
+            print(f"✍️ Corrected: «{data['input']}» → «{data['final']}»")
 
-        # 1.5) Пост-чек речень (перевіряємо, чи містять вони слово як ціле слово)
+        # 1.5) Post-check sentences (check if they contain the word as a whole word)
         final_w = data["final"].strip()
         bad = [i for i,s in enumerate(data["sentences"]) if not _contains_whole_word(s, final_w)]
         if bad:
-            print(f"⚠️  Речення {[i+1 for i in bad]} не містять слово «{final_w}» як ціле слово. Перегенерую...")
-            # перегенеруй лише речення (легкий "repair"-запит)
+            print(f"⚠️  Sentences {[i+1 for i in bad]} do not contain the word «{final_w}» as a whole word. Regenerating...")
+            # regenerate only sentences (light "repair" request)
             repair_system = 'Return STRICT JSON: {"sentences": [str, str, str]} — exactly 3 short sentences, each must contain the word "{w}". No commentary.'
             repair_user = f'word: {final_w}'
             raw = call_llm(repair_user, model=args.model,
@@ -79,17 +79,17 @@ def main():
             try:
                 m = re.search(r"\{.*\}", raw, flags=re.S)
                 data["sentences"] = json.loads(m.group(0))["sentences"]
-                print("✅ Речення перегенеровано")
+                print("✅ Sentences regenerated")
             except Exception:
-                print("❌ Не вдалося перегенерувати речення")
+                print("❌ Failed to regenerate sentences")
 
-        print("\nПриклади:")
+        print("\nExamples:")
         for i, s in enumerate(data["sentences"], 1):
             print(f"{i}. {s}")
 
-        # 2) Додаткова довідка (RAG або проста LLM) — беремо фінальне слово
+        # 2) Additional information (RAG or simple LLM) — take the final word
         final_word = data["final"].strip()
-        print(f"\nДодаткова інформація про «{final_word}»:")
+        print(f"\nAdditional information about «{final_word}»:")
         if args.rag:
             answer = ask_with_rag_def(final_word, k=args.k, model=args.model, max_context_chars=800)
         else:
@@ -100,16 +100,16 @@ def main():
             answer = call_llm(prompt, model=args.model)
         print(answer)
         
-        # 3) Малий пост-чек речень (перевіряємо, чи містять вони слово)
-        print(f"\nПеревірка речень:")
+        # 3) Small post-check of sentences (check if they contain the word)
+        print(f"\nSentence verification:")
         for i, sentence in enumerate(data["sentences"], 1):
             if final_word.lower() in sentence.lower():
-                print(f"  {i}. ✅ Містить «{final_word}»")
+                print(f"  {i}. ✅ Contains «{final_word}»")
             else:
-                print(f"  {i}. ❌ НЕ містить «{final_word}»")
+                print(f"  {i}. ❌ Does NOT contain «{final_word}»")
 
     finally:
-        # опційно — звільняємо RAM після запуску
+        # optionally — free RAM after run
         if args.stop_after:
             try:
                 subprocess.run(["ollama", "stop", args.model], check=False)

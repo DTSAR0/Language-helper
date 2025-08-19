@@ -6,7 +6,7 @@ import os, numpy as np, pandas as pd, faiss
 from sentence_transformers import SentenceTransformer
 from app.core.llm import call_llm
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"  # прибирає попередження
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # removes the warning
 
 PATH_PAR = Path("docs/entries.parquet")
 PATH_IDX = Path("docs/index.faiss")
@@ -25,27 +25,27 @@ def _load_index() -> faiss.Index:
 
 @lru_cache(maxsize=1)
 def _load_embedder() -> SentenceTransformer:
-    # Форсимо CPU, щоб не дратувати MPS/Metal на 8 ГБ
+    # Force CPU to avoid irritating MPS/Metal on 8 GB
     return SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cpu")
 
 def retrieve(query: str, k: int = 4):
-    """Top-k: спершу exact match (term==query), потім FAISS."""
+    """Top-k: first exact match (term==query), then FAISS."""
     df = _load_df()
     index = _load_index()
     emb = _load_embedder()
 
-    # 1) точний збіг
+    # 1) exact match
     exact_idx = df.index[df["term"].str.casefold() == query.strip().casefold()].tolist()
 
-    # 2) семантичний пошук
+    # 2) semantic search
     qv = emb.encode([query], normalize_embeddings=True).astype("float32")
     D, I = index.search(qv, max(k, 4))
     faiss_idx = [i for i in I[0].tolist() if i not in exact_idx]
 
-    # 3) змішуємо: exact спочатку
+    # 3) mix: exact first
     idxs = (exact_idx + faiss_idx)[:k]
     hits = df.iloc[idxs].copy()
-    # "високі" бали для exact
+    # "high" scores for exact
     scores = [1.0]*len(exact_idx) + D[0].tolist()
     hits["__score"] = scores[:len(hits)]
     return hits, hits["__score"].tolist()
@@ -54,7 +54,7 @@ def _clip(text: str, n: int) -> str:
     return text if len(text) <= n else text[:n].rsplit("\n",1)[0] + "…"
 
 def build_prompt_def(term: str, context: str) -> str:
-    # Промпт для "довідки", без перекладу
+    # Prompt for "reference", without translation
     return f"""
 You are a lexicographer. Use ONLY the CONTEXT (dictionary snippets) to answer about the exact word "{term}".
 If multiple senses exist, pick the main/common sense. Do NOT translate; do not switch to synonyms.
