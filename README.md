@@ -48,6 +48,48 @@ poetry run python -m app "word" -l en --no-rag
 - `--k`: Number of RAG chunks to retrieve (default: 3)
 - `--stop-after`: Stop the Ollama model after completion
 
+## GUI Interface
+
+### Desktop GUI with Hotkey Support
+```bash
+poetry run python -m app.gui.hotkey_gui
+```
+
+**Features:**
+- **Global Hotkey**: `Ctrl+Option+L` to show/hide the GUI instantly
+- **Desktop Integration**: Native desktop application
+- **Quick Access**: Perfect for quick word lookups while working
+- **Comprehensive Features**: Spell checking, examples, and word information
+- **Non-blocking UI**: Background processing with threading
+- **Stable Operation**: RAG disabled by default to prevent crashes
+
+**Setup on macOS:**
+1. **Install tkinter** (if not available):
+   ```bash
+   brew install python-tk
+   ```
+   Or use the system Python that includes tkinter by default.
+
+2. **Grant Accessibility permissions** to Terminal/iTerm in System Settings → Privacy & Security → Accessibility
+3. **Run the GUI application**: `poetry run python -m app.gui.hotkey_gui`
+4. **Use `Ctrl+Option+L`** to toggle the interface
+
+**Important Notes:**
+- **RAG is disabled by default** to prevent segmentation faults on macOS with Python 3.13
+- **GUI will auto-disable RAG** if it crashes once
+- **Use CLI with `--no-rag`** for the most stable experience
+- **If hotkey doesn't work**: Check accessibility permissions
+
+### Streamlit Web Interface
+```bash
+poetry run streamlit run app/ui/app.py
+```
+
+**Features:**
+- Web-based interface accessible via browser
+- Translation-focused functionality
+- Easy to deploy and share
+
 ## Known Issues
 
 ### RAG Segmentation Fault on macOS with Python 3.13
@@ -57,17 +99,41 @@ poetry run python -m app "word" -l en --no-rag
 **Symptoms**: 
 - Application crashes with "segmentation fault" error
 - Multiprocessing resource tracker warnings
+- GUI crashes when RAG is enabled
 
-**Solution**: Use the `--no-rag` flag to disable RAG functionality:
-```bash
-poetry run python -m app "word" -l en --no-rag
-```
+**Solutions**: 
+1. **CLI with RAG disabled** (recommended):
+   ```bash
+   poetry run python -m app "word" -l en --no-rag
+   ```
 
-**Workaround**: The application will automatically fall back to simple LLM responses when RAG is disabled, still providing useful information about words.
+2. **GUI with RAG disabled** (default):
+   ```bash
+   poetry run python -m app.gui.hotkey_gui
+   ```
+   RAG is disabled by default in the GUI to prevent crashes.
+
+3. **Streamlit interface** (stable):
+   ```bash
+   poetry run streamlit run app/ui/app.py
+   ```
+
+**Workaround**: The application automatically falls back to simple LLM responses when RAG is disabled, still providing comprehensive word information including definitions, usage examples, and collocations.
+
+## Current Status
+
+### ✅ **Project is Fully Functional Without RAG**
+
+The language helper project works perfectly without RAG functionality, providing:
+- **Spell checking and correction**
+- **Example sentence generation**
+- **Word definitions and usage**
+- **Collocations and language patterns**
+- **Multi-language support**
+
+All three interfaces (CLI, GUI, Streamlit) are stable and ready for use.
 
 ## Example Output
-
-```
 Checking: commend  | language: en  | model: qwen2.5:3b-instruct  | RAG: False
 ✅ Word does not need modification: «commend»
 
