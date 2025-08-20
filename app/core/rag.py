@@ -3,10 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 from functools import lru_cache
 import os, numpy as np, pandas as pd, faiss
+import multiprocessing as mp
 from sentence_transformers import SentenceTransformer
 from app.core.llm import call_llm
 
+# Configure multiprocessing to avoid issues
 os.environ["TOKENIZERS_PARALLELISM"] = "false"  # removes the warning
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = "/tmp"  # Use temp directory
+os.environ["HF_HOME"] = "/tmp"  # Use temp directory for HuggingFace cache
+# Try to set multiprocessing start method, but don't fail if already set
+try:
+    mp.set_start_method('spawn', force=True)
+except RuntimeError:
+    pass  # Already set
 
 PATH_PAR = Path("docs/entries.parquet")
 PATH_IDX = Path("docs/index.faiss")
@@ -26,7 +35,12 @@ def _load_index() -> faiss.Index:
 @lru_cache(maxsize=1)
 def _load_embedder() -> SentenceTransformer:
     # Force CPU to avoid irritating MPS/Metal on 8 GB
-    return SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", device="cpu")
+    # Also disable multiprocessing to avoid segmentation faults
+    return SentenceTransformer(
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", 
+        device="cpu",
+        cache_folder=None  # Disable caching to avoid multiprocessing issues
+    )
 
 def retrieve(query: str, k: int = 4):
     """Top-k: first exact match (term==query), then FAISS."""
@@ -71,8 +85,11 @@ CONTEXT:
 
 def ask_with_rag_def(term: str, k: int = 4, model: str = "qwen2.5:3b-instruct",
                      max_context_chars: int = 1200, llm_options: dict | None = None):
-    hits, _ = retrieve(term, k=k)
-    parts = [f"TERM: {row['term']}\nTEXT:\n{row['text']}" for _, row in hits.iterrows()]
-    ctx = _clip("\n\n---\n\n".join(parts), max_context_chars)
-    prompt = build_prompt_def(term, ctx)
-    return call_llm(prompt, model=model, options=llm_options)
+    try:
+        hits, _ = retrieve(term, k=k)
+        parts = [f"TERM: {row['term']}\nTEXT:\n{row['text']}" for _, row in hits.iterrows()]
+        ctx = _clip("\n\n---\n\n".join(parts), max_context_chars)
+        prompt = build_prompt_def(term, ctx)
+        return call_llm(prompt, model=model, options=llm_options)
+    except Exception as e:
+        return f"❌ Error retrieving RAG information: {e}\n\nFalling back to simple LLM response..."
